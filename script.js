@@ -5,8 +5,9 @@ const ui = document.getElementById('ui');
 const uiContainer = document.getElementById('ui-container');
 const uiToggle = document.getElementById('ui-toggle');
 
-// メッセージを更新
+// メッセージ設定
 msg.innerText = "Laser Harp Simulator";
+msg.style.fontSize = "30px"; // メッセージも大きく
 
 let audioCtx;
 let width, height;
@@ -29,42 +30,43 @@ let synthConfig = {
   volume: 0.3
 };
 
-// レイアウト設定
-const unitW = 240;      
-const gap = 110;        
-const pillarW = 22;     
-const laserSpacing = 95; 
+// --- レイアウト設定（全体を約1.5倍〜に拡大） ---
+const scale = 1.6; // 拡大率
+const unitW = 240 * scale;      
+const gap = 110 * scale;        
+const pillarW = 22 * scale;     
+const laserSpacing = 95 * scale; 
 const synthNotes = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00];
 
 uiToggle.addEventListener('click', () => {
   uiContainer.classList.toggle('folded');
 });
 
-// --- UI生成ロジック ---
+// --- UI生成ロジック（中身のデザインを維持しつつサイズアップ） ---
 function createUI() {
   ui.innerHTML = "";
 
   const bgmSection = document.createElement('div');
   bgmSection.style.borderBottom = "1px solid #0f0";
-  bgmSection.style.paddingBottom = "10px";
-  bgmSection.style.marginBottom = "10px";
+  bgmSection.style.paddingBottom = "15px";
+  bgmSection.style.marginBottom = "15px";
   bgmSection.innerHTML = `
-    <div style="color:#0f0; margin-bottom:5px; font-size:10px; opacity:0.7;">BGM / SYSTEM</div>
-    <div class="row"><input type="file" accept="audio/*" id="bgm-file"></div>
-    <div class="row" style="margin-top:5px; gap:5px;">
-      <button id="bgm-play" style="flex:1; background:#020; color:#0f0; border:1px solid #0f0; font-size:11px; padding:8px; cursor:pointer;">PLAY</button>
-      <button id="bgm-pause" style="flex:1; background:#220; color:#ff0; border:1px solid #ff0; font-size:11px; padding:8px; cursor:pointer;">PAUSE</button>
-      <button id="stop-all" style="flex:1; background:#200; color:#f00; border:1px solid #f00; font-size:11px; padding:8px; cursor:pointer;">STOP</button>
+    <div style="color:#0f0; margin-bottom:8px; font-size:14px; opacity:0.7;">BGM / SYSTEM</div>
+    <div class="row"><input type="file" accept="audio/*" id="bgm-file" style="font-size:14px;"></div>
+    <div class="row" style="margin-top:10px; gap:8px;">
+      <button id="bgm-play" style="flex:1; background:#020; color:#0f0; border:1px solid #0f0; font-size:14px; padding:12px; cursor:pointer;">PLAY</button>
+      <button id="bgm-pause" style="flex:1; background:#220; color:#ff0; border:1px solid #ff0; font-size:14px; padding:12px; cursor:pointer;">PAUSE</button>
+      <button id="stop-all" style="flex:1; background:#200; color:#f00; border:1px solid #f00; font-size:14px; padding:12px; cursor:pointer;">STOP</button>
     </div>
   `;
   ui.appendChild(bgmSection);
 
   const tabWrapper = document.createElement('div');
   tabWrapper.style.display = "flex";
-  tabWrapper.style.marginBottom = "10px";
+  tabWrapper.style.marginBottom = "15px";
   tabWrapper.innerHTML = `
-    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:8px; font-size:12px; cursor:pointer; font-weight:bold;">SAMPLER</button>
-    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:8px; font-size:12px; cursor:pointer;">SYNTH</button>
+    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:12px; font-size:16px; cursor:pointer; font-weight:bold;">SAMPLER</button>
+    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:12px; font-size:16px; cursor:pointer;">SYNTH</button>
   `;
   ui.appendChild(tabWrapper);
 
@@ -78,7 +80,7 @@ function createUI() {
     document.getElementById('tab-synth').style.color = "#0f0";
     
     contentArea.innerHTML = `
-      <div style="color:#0f0; font-size:10px; margin-bottom:10px; padding:0 5px; opacity:0.8; line-height:1.4;">
+      <div style="color:#0f0; font-size:13px; margin-bottom:15px; padding:0 5px; opacity:0.8; line-height:1.4;">
         ※各ボタンで複数ファイルを選択すると、<br>弾くたびに音が順番に切り替わります。
       </div>
     `;
@@ -86,11 +88,12 @@ function createUI() {
     for (let i = 0; i < 6; i++) {
       const row = document.createElement('div');
       row.className = 'row';
+      row.style.marginBottom = "10px";
       const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
       row.innerHTML = `
-        <span style="width:25px; color:#0f0; font-size:12px;">${label}</span>
-        <input type="file" accept="audio/*" id="file-${i}" multiple>
-        <select id="mode-${i}" style="background:#000; color:#0f0; border:1px solid #0f0; font-size:10px;">
+        <span style="width:40px; color:#0f0; font-size:16px;">${label}</span>
+        <input type="file" accept="audio/*" id="file-${i}" multiple style="font-size:12px;">
+        <select id="mode-${i}" style="background:#000; color:#0f0; border:1px solid #0f0; font-size:14px; padding:5px;">
           <option value="oneshot">one shot</option>
           <option value="hold">hold</option>
         </select>
@@ -107,20 +110,20 @@ function createUI() {
     document.getElementById('tab-sampler').style.color = "#0f0";
     contentArea.innerHTML = `
       <div style="padding:5px;">
-        <div class="row"><span style="flex:1; font-size:12px; color:#0f0;">WAVE</span>
-          <select id="synth-type" style="flex:2; background:#000; color:#0f0; border:1px solid #0f0;">
+        <div class="row" style="margin-bottom:15px;"><span style="flex:1; font-size:16px; color:#0f0;">WAVE</span>
+          <select id="synth-type" style="flex:2; background:#000; color:#0f0; border:1px solid #0f0; font-size:16px; padding:5px;">
             <option value="triangle" ${synthConfig.type === 'triangle' ? 'selected' : ''}>TRIANGLE</option>
             <option value="square" ${synthConfig.type === 'square' ? 'selected' : ''}>SQUARE</option>
             <option value="sawtooth" ${synthConfig.type === 'sawtooth' ? 'selected' : ''}>SAWTOOTH</option>
             <option value="sine" ${synthConfig.type === 'sine' ? 'selected' : ''}>SINE</option>
           </select>
         </div>
-        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">VOL</span>
-          <input type="range" id="synth-vol" min="0" max="1" step="0.01" value="${synthConfig.volume}" style="flex:2"></div>
-        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">ATK</span>
-          <input type="range" id="synth-atk" min="0.01" max="0.5" step="0.01" value="${synthConfig.attack}" style="flex:2"></div>
-        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">REL</span>
-          <input type="range" id="synth-rel" min="0.05" max="1.0" step="0.01" value="${synthConfig.release}" style="flex:2"></div>
+        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">VOL</span>
+          <input type="range" id="synth-vol" min="0" max="1" step="0.01" value="${synthConfig.volume}" style="flex:2; height:25px;"></div>
+        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">ATK</span>
+          <input type="range" id="synth-atk" min="0.01" max="0.5" step="0.01" value="${synthConfig.attack}" style="flex:2; height:25px;"></div>
+        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">REL</span>
+          <input type="range" id="synth-rel" min="0.05" max="1.0" step="0.01" value="${synthConfig.release}" style="flex:2; height:25px;"></div>
       </div>
     `;
     document.getElementById('synth-type').addEventListener('change', (e) => synthConfig.type = e.target.value);
@@ -138,7 +141,7 @@ function createUI() {
   document.getElementById('stop-all').addEventListener('click', stopAllAudio);
 }
 
-// --- オーディオ処理 ---
+// --- オーディオ処理（変更なし） ---
 function initAudioContext() { 
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -236,7 +239,7 @@ function stopSound(index) {
   }
 }
 
-// --- メインロジック ---
+// --- メインロジック（描画サイズの拡大対応） ---
 function init() {
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
@@ -258,8 +261,8 @@ function draw() {
   ctx.fillRect(0, 0, width, height);
   if (strings.length === 0) return;
 
-  const tY = strings[0].y - 35; 
-  const bY = strings[2].y + 50; 
+  const tY = strings[0].y - (35 * scale); 
+  const bY = strings[2].y + (50 * scale); 
   const pH = bY - tY;
   const pPos = [strings[0].x1, strings[0].x2, strings[3].x1, strings[3].x2];
   
@@ -269,12 +272,12 @@ function draw() {
     const grad = ctx.createLinearGradient(dX, tY, dX + pillarW, tY);
     grad.addColorStop(0, '#111'); grad.addColorStop(0.5, '#333'); grad.addColorStop(1, '#111');
     ctx.fillStyle = grad; ctx.fillRect(dX, tY, pillarW, pH);
-    ctx.strokeStyle = '#444'; ctx.strokeRect(dX, tY, pillarW, pH);
+    ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.strokeRect(dX, tY, pillarW, pH);
     ctx.restore();
   });
 
   strings.forEach((s, i) => {
-    const isHit = Math.abs(mousePos.y - s.y) < 25 && mousePos.x >= s.x1 && mousePos.x <= s.x2;
+    const isHit = Math.abs(mousePos.y - s.y) < (25 * scale) && mousePos.x >= s.x1 && mousePos.x <= s.x2;
     if (isHit) { if (!s.active) { s.active = true; playSound(i); } }
     else { if (s.active) { s.active = false; stopSound(i); } }
     
@@ -282,21 +285,21 @@ function draw() {
     if (isHit) { if (s.side === 'left') lS = mousePos.x; else lE = mousePos.x; }
     
     ctx.save();
-    ctx.shadowBlur = 10; ctx.shadowColor = '#0f0'; ctx.lineWidth = 2; ctx.strokeStyle = '#0f0';
+    ctx.shadowBlur = 15; ctx.shadowColor = '#0f0'; ctx.lineWidth = 3; ctx.strokeStyle = '#0f0';
     ctx.beginPath(); ctx.moveTo(lS, s.y); ctx.lineTo(lE, s.y); ctx.stroke();
     
-    ctx.shadowBlur = 5; ctx.fillStyle = '#0f0';
+    ctx.shadowBlur = 8; ctx.fillStyle = '#0f0';
     const launchX = (s.side === 'left') ? s.x2 : s.x1;
-    ctx.beginPath(); ctx.arc(launchX, s.y, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(launchX, s.y, 3, 0, Math.PI * 2); ctx.fill();
 
     if (isHit) {
-      ctx.beginPath(); ctx.shadowBlur = 20; ctx.shadowColor = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-      if (s.side === 'left') { ctx.moveTo(lS, s.y); ctx.lineTo(lS + 5, s.y); }
-      else { ctx.moveTo(lE - 5, s.y); ctx.lineTo(lE, s.y); }
+      ctx.beginPath(); ctx.shadowBlur = 25; ctx.shadowColor = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
+      if (s.side === 'left') { ctx.moveTo(lS, s.y); ctx.lineTo(lS + 10, s.y); }
+      else { ctx.moveTo(lE - 10, s.y); ctx.lineTo(lE, s.y); }
       ctx.stroke();
       
-      ctx.fillStyle = '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = '#0f0';
-      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.shadowBlur = 20; ctx.shadowColor = '#0f0';
+      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   });
