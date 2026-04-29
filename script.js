@@ -5,9 +5,8 @@ const ui = document.getElementById('ui');
 const uiContainer = document.getElementById('ui-container');
 const uiToggle = document.getElementById('ui-toggle');
 
-// メッセージ設定
 msg.innerText = "Laser Harp Simulator";
-msg.style.fontSize = "30px"; // メッセージも大きく
+msg.style.fontSize = "30px";
 
 let audioCtx;
 let width, height;
@@ -15,14 +14,12 @@ let strings = [];
 let mousePos = { x: -999, y: -999 };
 let isStarted = false;
 
-// BGM設定
 let bgmBuffer = null;
 let bgmSource = null;
 let bgmStartTime = 0;
 let bgmPausedAt = 0;
 let isBgmPlaying = false;
 
-// シンセ音色の設定
 let synthConfig = {
   type: 'triangle',
   attack: 0.05,
@@ -30,8 +27,7 @@ let synthConfig = {
   volume: 0.3
 };
 
-// --- レイアウト設定（全体を約1.5倍〜に拡大） ---
-const scale = 1.6; // 拡大率
+const scale = 1.6;
 const unitW = 240 * scale;      
 const gap = 110 * scale;        
 const pillarW = 22 * scale;     
@@ -42,10 +38,11 @@ uiToggle.addEventListener('click', () => {
   uiContainer.classList.toggle('folded');
 });
 
-// --- UI生成ロジック（中身のデザインを維持しつつサイズアップ） ---
+// --- UI生成ロジック（一度だけ生成するように変更） ---
 function createUI() {
   ui.innerHTML = "";
 
+  // BGMセクション
   const bgmSection = document.createElement('div');
   bgmSection.style.borderBottom = "1px solid #0f0";
   bgmSection.style.paddingBottom = "15px";
@@ -61,84 +58,99 @@ function createUI() {
   `;
   ui.appendChild(bgmSection);
 
+  // タブ切り替えボタン
   const tabWrapper = document.createElement('div');
   tabWrapper.style.display = "flex";
   tabWrapper.style.marginBottom = "15px";
   tabWrapper.innerHTML = `
-    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:12px; font-size:16px; cursor:pointer; font-weight:bold;">SAMPLER</button>
-    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:12px; font-size:16px; cursor:pointer;">SYNTH</button>
+    <button id="tab-sampler-btn" style="flex:1; background:#0f0; color:#000; border:none; padding:12px; font-size:16px; cursor:pointer; font-weight:bold;">SAMPLER</button>
+    <button id="tab-synth-btn" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:12px; font-size:16px; cursor:pointer;">SYNTH</button>
   `;
   ui.appendChild(tabWrapper);
 
-  const contentArea = document.createElement('div');
-  ui.appendChild(contentArea);
+  // コンテンツエリア（サンプラーとシンセを別々に作成して出し分け）
+  const samplerPanel = document.createElement('div');
+  const synthPanel = document.createElement('div');
+  ui.appendChild(samplerPanel);
+  ui.appendChild(synthPanel);
 
-  function showSampler() {
-    document.getElementById('tab-sampler').style.background = "#0f0";
-    document.getElementById('tab-sampler').style.color = "#000";
-    document.getElementById('tab-synth').style.background = "#000";
-    document.getElementById('tab-synth').style.color = "#0f0";
-    
-    contentArea.innerHTML = `
-      <div style="color:#0f0; font-size:13px; margin-bottom:15px; padding:0 5px; opacity:0.8; line-height:1.4;">
-        ※各ボタンで複数ファイルを選択すると、<br>弾くたびに音が順番に切り替わります。
-      </div>
+  // サンプラー側の初期構築
+  samplerPanel.innerHTML = `
+    <div style="color:#0f0; font-size:13px; margin-bottom:15px; padding:0 5px; opacity:0.8; line-height:1.4;">
+      ※各ボタンで複数ファイルを選択すると、<br>弾くたびに音が順番に切り替わります。
+    </div>
+  `;
+  for (let i = 0; i < 6; i++) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginBottom = "10px";
+    const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
+    row.innerHTML = `
+      <span style="width:40px; color:#0f0; font-size:16px;">${label}</span>
+      <input type="file" accept="audio/*" id="file-${i}" multiple style="font-size:12px;">
+      <select id="mode-${i}" style="background:#000; color:#0f0; border:1px solid #0f0; font-size:14px; padding:5px;">
+        <option value="oneshot">one shot</option>
+        <option value="hold">hold</option>
+      </select>
     `;
+    samplerPanel.appendChild(row);
+    document.getElementById(`file-${i}`).addEventListener('change', (e) => loadSamples(e, i));
+  }
 
-    for (let i = 0; i < 6; i++) {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.style.marginBottom = "10px";
-      const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
-      row.innerHTML = `
-        <span style="width:40px; color:#0f0; font-size:16px;">${label}</span>
-        <input type="file" accept="audio/*" id="file-${i}" multiple style="font-size:12px;">
-        <select id="mode-${i}" style="background:#000; color:#0f0; border:1px solid #0f0; font-size:14px; padding:5px;">
-          <option value="oneshot">one shot</option>
-          <option value="hold">hold</option>
+  // シンセ側の初期構築
+  synthPanel.innerHTML = `
+    <div style="padding:5px;">
+      <div class="row" style="margin-bottom:15px;"><span style="flex:1; font-size:16px; color:#0f0;">WAVE</span>
+        <select id="synth-type" style="flex:2; background:#000; color:#0f0; border:1px solid #0f0; font-size:16px; padding:5px;">
+          <option value="triangle" ${synthConfig.type === 'triangle' ? 'selected' : ''}>TRIANGLE</option>
+          <option value="square" ${synthConfig.type === 'square' ? 'selected' : ''}>SQUARE</option>
+          <option value="sawtooth" ${synthConfig.type === 'sawtooth' ? 'selected' : ''}>SAWTOOTH</option>
+          <option value="sine" ${synthConfig.type === 'sine' ? 'selected' : ''}>SINE</option>
         </select>
-      `;
-      contentArea.appendChild(row);
-      document.getElementById(`file-${i}`).addEventListener('change', (e) => loadSamples(e, i));
+      </div>
+      <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">VOL</span>
+        <input type="range" id="synth-vol" min="0" max="1" step="0.01" value="${synthConfig.volume}" style="flex:2; height:25px;"></div>
+      <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">ATK</span>
+        <input type="range" id="synth-atk" min="0.01" max="0.5" step="0.01" value="${synthConfig.attack}" style="flex:2; height:25px;"></div>
+      <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">REL</span>
+        <input type="range" id="synth-rel" min="0.05" max="1.0" step="0.01" value="${synthConfig.release}" style="flex:2; height:25px;"></div>
+    </div>
+  `;
+
+  // 表示切り替え関数
+  function switchTab(target) {
+    if (target === 'sampler') {
+      samplerPanel.style.display = 'block';
+      synthPanel.style.display = 'none';
+      document.getElementById('tab-sampler-btn').style.background = "#0f0";
+      document.getElementById('tab-sampler-btn').style.color = "#000";
+      document.getElementById('tab-synth-btn').style.background = "#000";
+      document.getElementById('tab-synth-btn').style.color = "#0f0";
+    } else {
+      samplerPanel.style.display = 'none';
+      synthPanel.style.display = 'block';
+      document.getElementById('tab-synth-btn').style.background = "#0f0";
+      document.getElementById('tab-synth-btn').style.color = "#000";
+      document.getElementById('tab-sampler-btn').style.background = "#000";
+      document.getElementById('tab-sampler-btn').style.color = "#0f0";
     }
   }
 
-  function showSynth() {
-    document.getElementById('tab-synth').style.background = "#0f0";
-    document.getElementById('tab-synth').style.color = "#000";
-    document.getElementById('tab-sampler').style.background = "#000";
-    document.getElementById('tab-sampler').style.color = "#0f0";
-    contentArea.innerHTML = `
-      <div style="padding:5px;">
-        <div class="row" style="margin-bottom:15px;"><span style="flex:1; font-size:16px; color:#0f0;">WAVE</span>
-          <select id="synth-type" style="flex:2; background:#000; color:#0f0; border:1px solid #0f0; font-size:16px; padding:5px;">
-            <option value="triangle" ${synthConfig.type === 'triangle' ? 'selected' : ''}>TRIANGLE</option>
-            <option value="square" ${synthConfig.type === 'square' ? 'selected' : ''}>SQUARE</option>
-            <option value="sawtooth" ${synthConfig.type === 'sawtooth' ? 'selected' : ''}>SAWTOOTH</option>
-            <option value="sine" ${synthConfig.type === 'sine' ? 'selected' : ''}>SINE</option>
-          </select>
-        </div>
-        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">VOL</span>
-          <input type="range" id="synth-vol" min="0" max="1" step="0.01" value="${synthConfig.volume}" style="flex:2; height:25px;"></div>
-        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">ATK</span>
-          <input type="range" id="synth-atk" min="0.01" max="0.5" step="0.01" value="${synthConfig.attack}" style="flex:2; height:25px;"></div>
-        <div class="row" style="margin-top:15px;"><span style="flex:1; font-size:16px; color:#0f0;">REL</span>
-          <input type="range" id="synth-rel" min="0.05" max="1.0" step="0.01" value="${synthConfig.release}" style="flex:2; height:25px;"></div>
-      </div>
-    `;
-    document.getElementById('synth-type').addEventListener('change', (e) => synthConfig.type = e.target.value);
-    document.getElementById('synth-vol').addEventListener('input', (e) => synthConfig.volume = parseFloat(e.target.value));
-    document.getElementById('synth-atk').addEventListener('input', (e) => synthConfig.attack = parseFloat(e.target.value));
-    document.getElementById('synth-rel').addEventListener('input', (e) => synthConfig.release = parseFloat(e.target.value));
-  }
+  // 初期状態
+  switchTab('sampler');
 
-  showSampler();
-  document.getElementById('tab-sampler').addEventListener('click', showSampler);
-  document.getElementById('tab-synth').addEventListener('click', showSynth);
+  // イベント登録
+  document.getElementById('tab-sampler-btn').addEventListener('click', () => switchTab('sampler'));
+  document.getElementById('tab-synth-btn').addEventListener('click', () => switchTab('synth'));
   document.getElementById('bgm-file').addEventListener('change', loadBGM);
   document.getElementById('bgm-play').addEventListener('click', playBGM);
   document.getElementById('bgm-pause').addEventListener('click', pauseBGM);
   document.getElementById('stop-all').addEventListener('click', stopAllAudio);
+
+  document.getElementById('synth-type').addEventListener('change', (e) => synthConfig.type = e.target.value);
+  document.getElementById('synth-vol').addEventListener('input', (e) => synthConfig.volume = parseFloat(e.target.value));
+  document.getElementById('synth-atk').addEventListener('input', (e) => synthConfig.attack = parseFloat(e.target.value));
+  document.getElementById('synth-rel').addEventListener('input', (e) => synthConfig.release = parseFloat(e.target.value));
 }
 
 // --- オーディオ処理（変更なし） ---
@@ -239,7 +251,6 @@ function stopSound(index) {
   }
 }
 
-// --- メインロジック（描画サイズの拡大対応） ---
 function init() {
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
