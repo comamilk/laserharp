@@ -5,10 +5,14 @@ const ui = document.getElementById('ui');
 const uiContainer = document.getElementById('ui-container');
 const uiToggle = document.getElementById('ui-toggle');
 
+// メッセージを更新
+msg.innerText = "Laser Harp Simulator";
+
 let audioCtx;
 let width, height;
 let strings = [];
 let mousePos = { x: -999, y: -999 };
+let isStarted = false;
 
 // BGM設定
 let bgmBuffer = null;
@@ -40,7 +44,6 @@ uiToggle.addEventListener('click', () => {
 function createUI() {
   ui.innerHTML = "";
 
-  // BGMセクション
   const bgmSection = document.createElement('div');
   bgmSection.style.borderBottom = "1px solid #0f0";
   bgmSection.style.paddingBottom = "10px";
@@ -49,20 +52,19 @@ function createUI() {
     <div style="color:#0f0; margin-bottom:5px; font-size:10px; opacity:0.7;">BGM / SYSTEM</div>
     <div class="row"><input type="file" accept="audio/*" id="bgm-file"></div>
     <div class="row" style="margin-top:5px; gap:5px;">
-      <button id="bgm-play" style="flex:1; background:#020; color:#0f0; border:1px solid #0f0; font-size:11px; padding:4px; cursor:pointer;">PLAY</button>
-      <button id="bgm-pause" style="flex:1; background:#220; color:#ff0; border:1px solid #ff0; font-size:11px; padding:4px; cursor:pointer;">PAUSE</button>
-      <button id="stop-all" style="flex:1; background:#200; color:#f00; border:1px solid #f00; font-size:11px; padding:4px; cursor:pointer;">STOP</button>
+      <button id="bgm-play" style="flex:1; background:#020; color:#0f0; border:1px solid #0f0; font-size:11px; padding:8px; cursor:pointer;">PLAY</button>
+      <button id="bgm-pause" style="flex:1; background:#220; color:#ff0; border:1px solid #ff0; font-size:11px; padding:8px; cursor:pointer;">PAUSE</button>
+      <button id="stop-all" style="flex:1; background:#200; color:#f00; border:1px solid #f00; font-size:11px; padding:8px; cursor:pointer;">STOP</button>
     </div>
   `;
   ui.appendChild(bgmSection);
 
-  // タブボタン
   const tabWrapper = document.createElement('div');
   tabWrapper.style.display = "flex";
   tabWrapper.style.marginBottom = "10px";
   tabWrapper.innerHTML = `
-    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:5px; font-size:12px; cursor:pointer; font-weight:bold;">SAMPLER</button>
-    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:5px; font-size:12px; cursor:pointer;">SYNTH</button>
+    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:8px; font-size:12px; cursor:pointer; font-weight:bold;">SAMPLER</button>
+    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:8px; font-size:12px; cursor:pointer;">SYNTH</button>
   `;
   ui.appendChild(tabWrapper);
 
@@ -74,7 +76,13 @@ function createUI() {
     document.getElementById('tab-sampler').style.color = "#000";
     document.getElementById('tab-synth').style.background = "#000";
     document.getElementById('tab-synth').style.color = "#0f0";
-    contentArea.innerHTML = "";
+    
+    contentArea.innerHTML = `
+      <div style="color:#0f0; font-size:10px; margin-bottom:10px; padding:0 5px; opacity:0.8; line-height:1.4;">
+        ※各ボタンで複数ファイルを選択すると、<br>弾くたびに音が順番に切り替わります。
+      </div>
+    `;
+
     for (let i = 0; i < 6; i++) {
       const row = document.createElement('div');
       row.className = 'row';
@@ -131,7 +139,19 @@ function createUI() {
 }
 
 // --- オーディオ処理 ---
-function initAudioContext() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function initAudioContext() { 
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  if(!isStarted) {
+    isStarted = true;
+    msg.style.opacity = 0;
+    setTimeout(() => msg.style.display = 'none', 500);
+  }
+}
 
 async function loadBGM(e) {
   initAudioContext();
@@ -179,6 +199,7 @@ function stopAllAudio() {
 }
 
 function playSound(index) {
+  if(!isStarted) return;
   initAudioContext();
   const s = strings[index];
   if (s.source) {
@@ -237,7 +258,6 @@ function draw() {
   ctx.fillRect(0, 0, width, height);
   if (strings.length === 0) return;
 
-  // 【修正】上の余白を少し増やし(35px)、下は元のまま(50px)
   const tY = strings[0].y - 35; 
   const bY = strings[2].y + 50; 
   const pH = bY - tY;
@@ -283,6 +303,31 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-canvas.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
+function updatePos(e) {
+  let x, y;
+  if (e.touches && e.touches.length > 0) {
+    x = e.touches[0].clientX;
+    y = e.touches[0].clientY;
+    e.preventDefault();
+  } else {
+    x = e.clientX;
+    y = e.clientY;
+  }
+  mousePos.x = x;
+  mousePos.y = y;
+}
+
+function clearPos() {
+  mousePos.x = -999;
+  mousePos.y = -999;
+}
+
+canvas.addEventListener('mousedown', initAudioContext);
+canvas.addEventListener('mousemove', updatePos);
+canvas.addEventListener('touchstart', (e) => { initAudioContext(); updatePos(e); }, {passive: false});
+canvas.addEventListener('touchmove', updatePos, {passive: false});
+canvas.addEventListener('touchend', clearPos);
+canvas.addEventListener('mouseleave', clearPos);
+
 window.addEventListener('resize', init);
 createUI(); init(); draw();
