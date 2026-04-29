@@ -1,0 +1,289 @@
+<!doctype html><html><head></head><body><!DOCTYPE html>
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<title>Laser Harp Pro - Compact Sampler</title>
+	<style>
+		body {
+			margin: 0;
+			background: #020512;
+			overflow: hidden;
+			font-family: sans-serif;
+		}
+
+		canvas {
+			display: block;
+		}
+
+		#ui-container {
+			position: absolute;
+			bottom: 20px;
+			left: 20px;
+			z-index: 100;
+			transition: transform 0.3s ease;
+		}
+
+		#ui-container.folded {
+			transform: translateY(calc(100% - 40px));
+		}
+
+		#ui-toggle {
+			background: #0f0;
+			color: #000;
+			border: none;
+			padding: 8px 15px;
+			cursor: pointer;
+			font-weight: bold;
+			border-radius: 5px 5px 0 0;
+			width: 100%;
+			box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+		}
+
+		#ui {
+			background: rgba(0, 15, 40, 0.95);
+			padding: 15px;
+			border: 1px solid #0f0;
+			color: white;
+			font-size: 11px;
+			display: grid;
+			gap: 8px;
+			border-radius: 0 0 5px 5px;
+		}
+
+		.row {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			border-bottom: 1px solid rgba(0, 255, 0, 0.1);
+			padding-bottom: 4px;
+		}
+
+		input[type="file"] {
+			width: 130px;
+			font-size: 9px;
+			color: #0f0;
+		}
+
+		select {
+			background: #000;
+			color: #0f0;
+			border: 1px solid #0f0;
+			font-size: 10px;
+		}
+
+		#msg {
+			position: absolute;
+			width: 100%;
+			text-align: center;
+			top: 20px;
+			color: #0f0;
+			pointer-events: none;
+			text-shadow: 0 0 10px #0f0;
+			font-family: monospace;
+			letter-spacing: 2px;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="msg">SYSTEM READY / CLICK TO START</div>
+
+	<div id="ui-container" class="folded">
+		<button id="ui-toggle">PANEL (OPEN/CLOSE)</button>
+		<div id="ui"></div>
+	</div>
+
+	<canvas id="harp"></canvas>
+	<script src="script.js"></script>
+</body>
+
+</html><script type="text/javascript">const canvas = document.getElementById('harp');
+const ctx = canvas.getContext('2d');
+const msg = document.getElementById('msg');
+const ui = document.getElementById('ui');
+const uiContainer = document.getElementById('ui-container');
+const uiToggle = document.getElementById('ui-toggle');
+
+let audioCtx;
+let width, height;
+let strings = [];
+let mousePos = { x: -999, y: -999 };
+
+// --- ハープのサイズ調整（横幅を狭く） ---
+const unitW = 240;        // レーザーの長さ（少し短く）
+const gap = 120;         // 中央の隙間（少し狭く）
+const pillarW = 24;      // 柱の太さ
+const laserSpacing = 100; // 弦の垂直間隔
+
+// UI開閉
+uiToggle.addEventListener('click', () => {
+  uiContainer.classList.toggle('folded');
+});
+
+// UI生成
+function createUI() {
+  ui.innerHTML = "";
+  for (let i = 0; i < 6; i++) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
+    row.innerHTML = `
+            <span style="width:25px; color:#0f0;">${label}</span>
+            <input type="file" accept=".wav,.mp3,.flac" id="file-${i}">
+            <select id="mode-${i}">
+                <option value="oneshot">ONESHOT</option>
+                <option value="hold">HOLD</option>
+            </select>
+        `;
+    ui.appendChild(row);
+    document.getElementById(`file-${i}`).addEventListener('change', (e) => loadSample(e, i));
+  }
+}
+
+// 音源読み込み
+async function loadSample(e, index) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const file = e.target.files[0];
+  if (!file) return;
+  const arrayBuffer = await file.arrayBuffer();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  strings[index].buffer = audioBuffer;
+  msg.innerText = `LOADED: ${file.name}`;
+}
+
+// 初期化
+function init() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+  strings = [];
+  const centerY = height / 2;
+  const centerX = width / 2;
+  const leftX = centerX - gap / 2 - unitW;
+  const rightX = centerX + gap / 2;
+
+  for (let i = 0; i < 6; i++) {
+    const isRightSide = i >= 3;
+    const localIdx = i % 3;
+    const y = centerY - laserSpacing + (localIdx * laserSpacing);
+
+    strings.push({
+      x1: isRightSide ? rightX : leftX,
+      x2: isRightSide ? rightX + unitW : leftX + unitW,
+      y: y,
+      side: isRightSide ? 'right' : 'left',
+      active: false,
+      buffer: null,
+      source: null,
+      gainNode: null
+    });
+  }
+}
+
+function playSample(index) {
+  if (!audioCtx || !strings[index].buffer) return;
+  const s = strings[index];
+  if (s.source) { try { s.source.stop(); } catch (e) { } }
+
+  const source = audioCtx.createBufferSource();
+  const gainNode = audioCtx.createGain();
+  source.buffer = s.buffer;
+  source.connect(gainNode).connect(audioCtx.destination);
+  source.start(0);
+
+  s.source = source;
+  s.gainNode = gainNode;
+}
+
+function stopSample(index) {
+  const s = strings[index];
+  const mode = document.getElementById(`mode-${index}`).value;
+  if (mode === 'hold' && s.source && s.gainNode) {
+    s.gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    setTimeout(() => { try { s.source.stop(); } catch (e) { } }, 100);
+  }
+}
+
+function draw() {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#020512';
+  ctx.fillRect(0, 0, width, height);
+
+  if (strings.length === 0) return;
+
+  // 1. 柱の描画
+  const firstY = strings[0].y;
+  const lastY = strings[2].y;
+  const pTop = firstY - 30;
+  const pHeight = (lastY - firstY) + 60;
+  const pX = [strings[0].x1, strings[0].x2, strings[3].x1, strings[3].x2];
+
+  pX.forEach((x, i) => {
+    ctx.save();
+    const drawX = (i % 2 === 0) ? x - pillarW : x;
+    const grad = ctx.createLinearGradient(drawX, pTop, drawX + pillarW, pTop);
+    grad.addColorStop(0, '#111'); grad.addColorStop(0.5, '#444'); grad.addColorStop(1, '#111');
+    ctx.fillStyle = grad;
+    ctx.fillRect(drawX, pTop, pillarW, pHeight);
+    ctx.restore();
+  });
+
+  // 2. レーザーとエフェクト
+  strings.forEach((s, i) => {
+    const isHitting = Math.abs(mousePos.y - s.y) < 25 && mousePos.x >= s.x1 && mousePos.x <= s.x2;
+    let dXStart = s.x1;
+    let dXEnd = s.x2;
+
+    if (isHitting) {
+      if (!s.active) { s.active = true; playSample(i); }
+      if (s.side === 'left') { dXStart = mousePos.x; dXEnd = s.x2; }
+      else { dXStart = s.x1; dXEnd = mousePos.x; }
+    } else {
+      if (s.active) { s.active = false; stopSample(i); }
+    }
+
+    // レーザー
+    ctx.save();
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#0f0';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#0f0';
+    ctx.beginPath();
+    ctx.moveTo(dXStart, s.y);
+    ctx.lineTo(dXEnd, s.y);
+    ctx.stroke();
+
+    // 遮断部（手）の光
+    if (s.active) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowBlur = 30;
+      ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // 光源
+    ctx.fillStyle = '#0f0';
+    const srcX = (s.side === 'left') ? s.x2 : s.x1;
+    ctx.beginPath(); ctx.arc(srcX, s.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+
+  requestAnimationFrame(draw);
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  mousePos.x = e.clientX;
+  mousePos.y = e.clientY;
+});
+
+window.addEventListener('mousedown', () => {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (msg.innerText.includes("READY")) msg.innerText = "SENSORS ONLINE";
+});
+
+window.addEventListener('resize', init);
+createUI();
+init();
+draw();</script></body><html>
