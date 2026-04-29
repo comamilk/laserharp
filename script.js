@@ -10,159 +10,279 @@ let width, height;
 let strings = [];
 let mousePos = { x: -999, y: -999 };
 
-const unitW = 240;
-const gap = 120;
-const pillarW = 24;
-const laserSpacing = 100;
+// BGM設定
+let bgmBuffer = null;
+let bgmSource = null;
+let bgmStartTime = 0;
+let bgmPausedAt = 0;
+let isBgmPlaying = false;
+
+// シンセ音色の設定
+let synthConfig = {
+  type: 'triangle',
+  attack: 0.05,
+  release: 0.2,
+  volume: 0.3
+};
+
+// レイアウト設定
+const unitW = 240;      
+const gap = 110;        
+const pillarW = 22;     
+const laserSpacing = 95; 
+const synthNotes = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00];
 
 uiToggle.addEventListener('click', () => {
   uiContainer.classList.toggle('folded');
 });
 
+// --- UI生成ロジック ---
 function createUI() {
   ui.innerHTML = "";
-  for (let i = 0; i < 6; i++) {
-    const row = document.createElement('div');
-    row.className = 'row';
-    const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
-    row.innerHTML = `
-            <span style="width:25px; color:#0f0;">${label}</span>
-            <input type="file" accept=".wav,.mp3,.flac" id="file-${i}">
-            <select id="mode-${i}">
-                <option value="oneshot">ONESHOT</option>
-                <option value="hold">HOLD</option>
-            </select>
-        `;
-    ui.appendChild(row);
-    document.getElementById(`file-${i}`).addEventListener('change', (e) => loadSample(e, i));
+
+  // BGMセクション
+  const bgmSection = document.createElement('div');
+  bgmSection.style.borderBottom = "1px solid #0f0";
+  bgmSection.style.paddingBottom = "10px";
+  bgmSection.style.marginBottom = "10px";
+  bgmSection.innerHTML = `
+    <div style="color:#0f0; margin-bottom:5px; font-size:10px; opacity:0.7;">BGM / SYSTEM</div>
+    <div class="row"><input type="file" accept="audio/*" id="bgm-file"></div>
+    <div class="row" style="margin-top:5px; gap:5px;">
+      <button id="bgm-play" style="flex:1; background:#020; color:#0f0; border:1px solid #0f0; font-size:11px; padding:4px; cursor:pointer;">PLAY</button>
+      <button id="bgm-pause" style="flex:1; background:#220; color:#ff0; border:1px solid #ff0; font-size:11px; padding:4px; cursor:pointer;">PAUSE</button>
+      <button id="stop-all" style="flex:1; background:#200; color:#f00; border:1px solid #f00; font-size:11px; padding:4px; cursor:pointer;">STOP</button>
+    </div>
+  `;
+  ui.appendChild(bgmSection);
+
+  // タブボタン
+  const tabWrapper = document.createElement('div');
+  tabWrapper.style.display = "flex";
+  tabWrapper.style.marginBottom = "10px";
+  tabWrapper.innerHTML = `
+    <button id="tab-sampler" style="flex:1; background:#0f0; color:#000; border:none; padding:5px; font-size:12px; cursor:pointer; font-weight:bold;">SAMPLER</button>
+    <button id="tab-synth" style="flex:1; background:#000; color:#0f0; border:1px solid #0f0; padding:5px; font-size:12px; cursor:pointer;">SYNTH</button>
+  `;
+  ui.appendChild(tabWrapper);
+
+  const contentArea = document.createElement('div');
+  ui.appendChild(contentArea);
+
+  function showSampler() {
+    document.getElementById('tab-sampler').style.background = "#0f0";
+    document.getElementById('tab-sampler').style.color = "#000";
+    document.getElementById('tab-synth').style.background = "#000";
+    document.getElementById('tab-synth').style.color = "#0f0";
+    contentArea.innerHTML = "";
+    for (let i = 0; i < 6; i++) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = i < 3 ? `L-${i + 1}` : `R-${i - 2}`;
+      row.innerHTML = `
+        <span style="width:25px; color:#0f0; font-size:12px;">${label}</span>
+        <input type="file" accept="audio/*" id="file-${i}" multiple>
+        <select id="mode-${i}" style="background:#000; color:#0f0; border:1px solid #0f0; font-size:10px;">
+          <option value="oneshot">one shot</option>
+          <option value="hold">hold</option>
+        </select>
+      `;
+      contentArea.appendChild(row);
+      document.getElementById(`file-${i}`).addEventListener('change', (e) => loadSamples(e, i));
+    }
+  }
+
+  function showSynth() {
+    document.getElementById('tab-synth').style.background = "#0f0";
+    document.getElementById('tab-synth').style.color = "#000";
+    document.getElementById('tab-sampler').style.background = "#000";
+    document.getElementById('tab-sampler').style.color = "#0f0";
+    contentArea.innerHTML = `
+      <div style="padding:5px;">
+        <div class="row"><span style="flex:1; font-size:12px; color:#0f0;">WAVE</span>
+          <select id="synth-type" style="flex:2; background:#000; color:#0f0; border:1px solid #0f0;">
+            <option value="triangle" ${synthConfig.type === 'triangle' ? 'selected' : ''}>TRIANGLE</option>
+            <option value="square" ${synthConfig.type === 'square' ? 'selected' : ''}>SQUARE</option>
+            <option value="sawtooth" ${synthConfig.type === 'sawtooth' ? 'selected' : ''}>SAWTOOTH</option>
+            <option value="sine" ${synthConfig.type === 'sine' ? 'selected' : ''}>SINE</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">VOL</span>
+          <input type="range" id="synth-vol" min="0" max="1" step="0.01" value="${synthConfig.volume}" style="flex:2"></div>
+        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">ATK</span>
+          <input type="range" id="synth-atk" min="0.01" max="0.5" step="0.01" value="${synthConfig.attack}" style="flex:2"></div>
+        <div class="row" style="margin-top:10px;"><span style="flex:1; font-size:12px; color:#0f0;">REL</span>
+          <input type="range" id="synth-rel" min="0.05" max="1.0" step="0.01" value="${synthConfig.release}" style="flex:2"></div>
+      </div>
+    `;
+    document.getElementById('synth-type').addEventListener('change', (e) => synthConfig.type = e.target.value);
+    document.getElementById('synth-vol').addEventListener('input', (e) => synthConfig.volume = parseFloat(e.target.value));
+    document.getElementById('synth-atk').addEventListener('input', (e) => synthConfig.attack = parseFloat(e.target.value));
+    document.getElementById('synth-rel').addEventListener('input', (e) => synthConfig.release = parseFloat(e.target.value));
+  }
+
+  showSampler();
+  document.getElementById('tab-sampler').addEventListener('click', showSampler);
+  document.getElementById('tab-synth').addEventListener('click', showSynth);
+  document.getElementById('bgm-file').addEventListener('change', loadBGM);
+  document.getElementById('bgm-play').addEventListener('click', playBGM);
+  document.getElementById('bgm-pause').addEventListener('click', pauseBGM);
+  document.getElementById('stop-all').addEventListener('click', stopAllAudio);
+}
+
+// --- オーディオ処理 ---
+function initAudioContext() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+
+async function loadBGM(e) {
+  initAudioContext();
+  const file = e.target.files[0];
+  if (!file) return;
+  const ab = await file.arrayBuffer();
+  bgmBuffer = await audioCtx.decodeAudioData(ab);
+  bgmPausedAt = 0;
+}
+
+function playBGM() {
+  if (!bgmBuffer || isBgmPlaying) return;
+  initAudioContext();
+  bgmSource = audioCtx.createBufferSource();
+  bgmSource.buffer = bgmBuffer;
+  bgmSource.loop = true;
+  bgmSource.connect(audioCtx.destination);
+  bgmSource.start(0, bgmPausedAt);
+  bgmStartTime = audioCtx.currentTime - bgmPausedAt;
+  isBgmPlaying = true;
+}
+
+function pauseBGM() {
+  if (!isBgmPlaying || !bgmSource) return;
+  bgmPausedAt = audioCtx.currentTime - bgmStartTime;
+  bgmSource.stop();
+  isBgmPlaying = false;
+}
+
+async function loadSamples(e, index) {
+  initAudioContext();
+  const files = Array.from(e.target.files);
+  strings[index].buffers = [];
+  for (const file of files) {
+    const ab = await file.arrayBuffer();
+    const ad = await audioCtx.decodeAudioData(ab);
+    strings[index].buffers.push(ad);
   }
 }
 
-async function loadSample(e, index) {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const file = e.target.files[0];
-  if (!file) return;
-  const arrayBuffer = await file.arrayBuffer();
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-  strings[index].buffer = audioBuffer;
-  msg.innerText = `LOADED: ${file.name}`;
+function stopAllAudio() {
+  if (bgmSource) { bgmSource.stop(); bgmSource = null; }
+  bgmPausedAt = 0; isBgmPlaying = false;
+  strings.forEach(s => { if (s.source) try { s.source.stop(); } catch(e){} });
 }
 
+function playSound(index) {
+  initAudioContext();
+  const s = strings[index];
+  if (s.source) {
+    const oG = s.gainNode; const oS = s.source;
+    if (oG) { oG.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05); 
+    setTimeout(() => { try { oS.stop(); } catch(e){} }, 60); }
+  }
+  const g = audioCtx.createGain();
+  let src;
+  if (s.buffers.length > 0) {
+    src = audioCtx.createBufferSource(); src.buffer = s.buffers[s.currentIndex];
+    s.currentIndex = (s.currentIndex + 1) % s.buffers.length;
+    s.isSynth = false; g.gain.setValueAtTime(0.8, audioCtx.currentTime);
+  } else {
+    src = audioCtx.createOscillator(); src.type = synthConfig.type;
+    src.frequency.setValueAtTime(synthNotes[index], audioCtx.currentTime);
+    g.gain.setValueAtTime(0, audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(synthConfig.volume, audioCtx.currentTime + synthConfig.attack);
+    s.isSynth = true;
+  }
+  src.connect(g).connect(audioCtx.destination); src.start();
+  s.source = src; s.gainNode = g;
+}
+
+function stopSound(index) {
+  const s = strings[index];
+  const mEl = document.getElementById(`mode-${index}`);
+  const m = mEl ? mEl.value : 'oneshot';
+  if (!s.source || !s.gainNode) return;
+  if (m === 'hold' || s.isSynth) {
+    const rel = s.isSynth ? synthConfig.release : 0.1;
+    s.gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + rel);
+    const t = s.source; setTimeout(() => { try { t.stop(); } catch(e){} }, rel * 1000 + 10);
+  }
+}
+
+// --- メインロジック ---
 function init() {
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
   strings = [];
-  const centerY = height / 2;
-  const centerX = width / 2;
-  const leftX = centerX - gap / 2 - unitW;
-  const rightX = centerX + gap / 2;
-
+  const cx = width / 2, cy = height / 2;
+  const lx = cx - (gap / 2) - unitW, rx = cx + (gap / 2);
   for (let i = 0; i < 6; i++) {
-    const isRightSide = i >= 3;
-    const localIdx = i % 3;
-    const y = centerY - laserSpacing + (localIdx * laserSpacing);
-
+    const isR = i >= 3, lIdx = i % 3, y = cy - laserSpacing + (lIdx * laserSpacing);
     strings.push({
-      x1: isRightSide ? rightX : leftX,
-      x2: isRightSide ? rightX + unitW : leftX + unitW,
-      y: y,
-      side: isRightSide ? 'right' : 'left',
-      active: false,
-      buffer: null,
-      source: null,
-      gainNode: null
+      x1: isR ? rx : lx, x2: isR ? rx + unitW : lx + unitW,
+      y: y, side: isR ? 'right' : 'left', active: false, buffers: [], currentIndex: 0,
+      source: null, gainNode: null, isSynth: false
     });
   }
 }
 
-function playSample(index) {
-  if (!audioCtx || !strings[index].buffer) return;
-  const s = strings[index];
-  if (s.source) { try { s.source.stop(); } catch (e) { } }
-  const source = audioCtx.createBufferSource();
-  const gainNode = audioCtx.createGain();
-  source.buffer = s.buffer;
-  source.connect(gainNode).connect(audioCtx.destination);
-  source.start(0);
-  s.source = source;
-  s.gainNode = gainNode;
-}
-
-function stopSample(index) {
-  const s = strings[index];
-  const mode = document.getElementById(`mode-${index}`).value;
-  if (mode === 'hold' && s.source && s.gainNode) {
-    s.gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-    setTimeout(() => { try { s.source.stop(); } catch (e) { } }, 100);
-  }
-}
-
 function draw() {
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = '#020512';
+  ctx.fillStyle = '#050a1a';
   ctx.fillRect(0, 0, width, height);
   if (strings.length === 0) return;
-  const firstY = strings[0].y;
-  const lastY = strings[2].y;
-  const pTop = firstY - 30;
-  const pHeight = (lastY - firstY) + 60;
-  const pX = [strings[0].x1, strings[0].x2, strings[3].x1, strings[3].x2];
-  pX.forEach((x, i) => {
+
+  // 【修正】上の余白を少し増やし(35px)、下は元のまま(50px)
+  const tY = strings[0].y - 35; 
+  const bY = strings[2].y + 50; 
+  const pH = bY - tY;
+  const pPos = [strings[0].x1, strings[0].x2, strings[3].x1, strings[3].x2];
+  
+  pPos.forEach((x, i) => {
     ctx.save();
-    const drawX = (i % 2 === 0) ? x - pillarW : x;
-    const grad = ctx.createLinearGradient(drawX, pTop, drawX + pillarW, pTop);
-    grad.addColorStop(0, '#111'); grad.addColorStop(0.5, '#444'); grad.addColorStop(1, '#111');
-    ctx.fillStyle = grad;
-    ctx.fillRect(drawX, pTop, pillarW, pHeight);
+    const dX = (i % 2 === 0) ? x - pillarW : x;
+    const grad = ctx.createLinearGradient(dX, tY, dX + pillarW, tY);
+    grad.addColorStop(0, '#111'); grad.addColorStop(0.5, '#333'); grad.addColorStop(1, '#111');
+    ctx.fillStyle = grad; ctx.fillRect(dX, tY, pillarW, pH);
+    ctx.strokeStyle = '#444'; ctx.strokeRect(dX, tY, pillarW, pH);
     ctx.restore();
   });
+
   strings.forEach((s, i) => {
-    const isHitting = Math.abs(mousePos.y - s.y) < 25 && mousePos.x >= s.x1 && mousePos.x <= s.x2;
-    let dXStart = s.x1;
-    let dXEnd = s.x2;
-    if (isHitting) {
-      if (!s.active) { s.active = true; playSample(i); }
-      if (s.side === 'left') { dXStart = mousePos.x; dXEnd = s.x2; }
-      else { dXStart = s.x1; dXEnd = mousePos.x; }
-    } else {
-      if (s.active) { s.active = false; stopSample(i); }
-    }
+    const isHit = Math.abs(mousePos.y - s.y) < 25 && mousePos.x >= s.x1 && mousePos.x <= s.x2;
+    if (isHit) { if (!s.active) { s.active = true; playSound(i); } }
+    else { if (s.active) { s.active = false; stopSound(i); } }
+    
+    let lS = s.x1, lE = s.x2;
+    if (isHit) { if (s.side === 'left') lS = mousePos.x; else lE = mousePos.x; }
+    
     ctx.save();
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#0f0';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#0f0';
-    ctx.beginPath();
-    ctx.moveTo(dXStart, s.y);
-    ctx.lineTo(dXEnd, s.y);
-    ctx.stroke();
-    if (s.active) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.shadowBlur = 30;
-      ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
-      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 10; ctx.shadowColor = '#0f0'; ctx.lineWidth = 2; ctx.strokeStyle = '#0f0';
+    ctx.beginPath(); ctx.moveTo(lS, s.y); ctx.lineTo(lE, s.y); ctx.stroke();
+    
+    ctx.shadowBlur = 5; ctx.fillStyle = '#0f0';
+    const launchX = (s.side === 'left') ? s.x2 : s.x1;
+    ctx.beginPath(); ctx.arc(launchX, s.y, 1.5, 0, Math.PI * 2); ctx.fill();
+
+    if (isHit) {
+      ctx.beginPath(); ctx.shadowBlur = 20; ctx.shadowColor = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+      if (s.side === 'left') { ctx.moveTo(lS, s.y); ctx.lineTo(lS + 5, s.y); }
+      else { ctx.moveTo(lE - 5, s.y); ctx.lineTo(lE, s.y); }
+      ctx.stroke();
+      
+      ctx.fillStyle = '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = '#0f0';
+      ctx.beginPath(); ctx.arc(mousePos.x, s.y, 3, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.fillStyle = '#0f0';
-    const srcX = (s.side === 'left') ? s.x2 : s.x1;
-    ctx.beginPath(); ctx.arc(srcX, s.y, 5, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   });
   requestAnimationFrame(draw);
 }
 
-canvas.addEventListener('mousemove', (e) => {
-  mousePos.x = e.clientX;
-  mousePos.y = e.clientY;
-});
-
-window.addEventListener('mousedown', () => {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (msg.innerText.includes("READY")) msg.innerText = "SENSORS ONLINE";
-});
-
+canvas.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
 window.addEventListener('resize', init);
-createUI();
-init();
-draw();
+createUI(); init(); draw();
